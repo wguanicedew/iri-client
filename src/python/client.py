@@ -26,9 +26,12 @@ Usage:
 
 from __future__ import annotations
 
+import json as _json
 import os
+import shlex
+import sys
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 import requests
 import yaml
@@ -44,10 +47,11 @@ class IriClientError(Exception):
 class Client:
     """Synchronous IRI API client backed by a YAML config file."""
 
-    def __init__(self, config_path: str | Path | None = None) -> None:
+    def __init__(self, config_path: str | Path | None = None, *, debug: bool = False) -> None:
         config = _load_config(_resolve_config_path(config_path))
         self._base_url = config.get("base_url", DEFAULT_BASE_URL).rstrip("/")
         self._resource_id: str | None = config.get("resource_id")
+        self._debug = debug
         self._session = requests.Session()
         self._session.headers["Accept"] = "application/json"
         token: str | None = config.get("access_token")
@@ -71,10 +75,9 @@ class Client:
             Created job object including ``id``.
         """
         rid = self._resource(resource_id)
-        resp = self._session.post(
-            f"{self._base_url}/api/v1/compute/job/{_encode(rid)}",
-            json=job_spec,
-        )
+        url = f"{self._base_url}/api/v1/compute/job/{_encode(rid)}"
+        self._curl("POST", url, json_body=job_spec)
+        resp = self._session.post(url, json=job_spec)
         return _json_response(resp)
 
     def get_job(self, job_id: str, *, resource_id: str | None = None) -> dict:
@@ -90,9 +93,9 @@ class Client:
             Job object with status information.
         """
         rid = self._resource(resource_id)
-        resp = self._session.get(
-            f"{self._base_url}/api/v1/compute/status/{_encode(rid)}/{_encode(job_id)}",
-        )
+        url = f"{self._base_url}/api/v1/compute/status/{_encode(rid)}/{_encode(job_id)}"
+        self._curl("GET", url)
+        resp = self._session.get(url)
         return _json_response(resp)
 
     # ------------------------------------------------------------------
@@ -122,10 +125,9 @@ class Client:
         params: dict[str, str] = {"path": path}
         if dereference:
             params["dereference"] = "true"
-        resp = self._session.get(
-            f"{self._base_url}/api/v1/filesystem/stat/{_encode(rid)}",
-            params=params,
-        )
+        url = f"{self._base_url}/api/v1/filesystem/stat/{_encode(rid)}"
+        self._curl("GET", url, params=params)
+        resp = self._session.get(url, params=params)
         return _json_response(resp)
 
     def ls(
@@ -163,10 +165,9 @@ class Client:
             params["recursive"] = "true"
         if dereference:
             params["dereference"] = "true"
-        resp = self._session.get(
-            f"{self._base_url}/api/v1/filesystem/ls/{_encode(rid)}",
-            params=params,
-        )
+        url = f"{self._base_url}/api/v1/filesystem/ls/{_encode(rid)}"
+        self._curl("GET", url, params=params)
+        resp = self._session.get(url, params=params)
         return _json_response(resp)
 
     def download(
@@ -186,11 +187,10 @@ class Client:
             resource_id: Filesystem resource ID. Falls back to config ``resource_id``.
         """
         rid = self._resource(resource_id)
-        resp = self._session.get(
-            f"{self._base_url}/api/v1/filesystem/download/{_encode(rid)}",
-            params={"path": remote_path},
-            stream=True,
-        )
+        url = f"{self._base_url}/api/v1/filesystem/download/{_encode(rid)}"
+        params = {"path": remote_path}
+        self._curl("GET", url, params=params, output_path=local_dest)
+        resp = self._session.get(url, params=params, stream=True)
         _raise_for_error(resp)
         with open(local_dest, "wb") as fh:
             for chunk in resp.iter_content(chunk_size=65536):
@@ -218,17 +218,45 @@ class Client:
             Task or result object returned by the API.
         """
         rid = self._resource(resource_id)
+        url = f"{self._base_url}/api/v1/filesystem/upload/{_encode(rid)}"
+        params = {"path": remote_path}
+        self._curl("POST", url, params=params, upload_path=local_path)
         with open(local_path, "rb") as fh:
-            resp = self._session.post(
-                f"{self._base_url}/api/v1/filesystem/upload/{_encode(rid)}",
-                params={"path": remote_path},
-                files={"file": fh},
-            )
+            resp = self._session.post(url, params=params, files={"file": fh})
         return _json_response(resp)
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _curl(
+        self,
+        method: str,
+        url: str,
+        *,
+        params: dict | None = None,
+        json_body: dict | None = None,
+        upload_path: str | Path | None = None,
+        output_path: str | Path | None = None,
+    ) -> None:
+        if not self._debug:
+            return
+        parts = ["curl", "-s"]
+        if method.upper() != "GET":
+            parts += ["-X", method.upper()]
+        auth = self._session.headers.get("Authorization")
+        if auth:
+            parts += ["-H", f"Authorization: {auth}"]
+        parts += ["-H", "Accept: application/json"]
+        if json_body is not None:
+            parts += ["-H", "Content-Type: application/json", "-d", _json.dumps(json_body)]
+        if upload_path is not None:
+            parts += ["-F", f"file=@{upload_path}"]
+        if output_path is not None:
+            parts += ["-o", str(output_path)]
+        full_url = f"{url}?{urlencode(params)}" if params else url
+        parts.append(full_url)
+        print(shlex.join(parts), file=sys.stderr)
 
     def _resource(self, resource_id: str | None) -> str:
         rid = resource_id or self._resource_id
