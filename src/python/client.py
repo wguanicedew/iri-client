@@ -6,11 +6,16 @@ Config file format (YAML):
     access_token: <your_token>            # required for authenticated endpoints
     resource_id: <default_resource_id>    # optional default for all operations
 
+Config resolution order (when no path is passed to Client()):
+    1. $IRI_CLIENT_CONFIG environment variable
+    2. ~/.iri.yaml
+
 Usage:
 
     from client import Client
 
-    c = Client("~/.iri.yaml")
+    c = Client()                 # auto-discover config
+    c = Client("~/.iri.yaml")   # explicit path
     print(c.stat("/global/cfs/cdirs/m1234"))
     entries = c.ls("/global/cfs/cdirs/m1234")
     c.download("/global/cfs/cdirs/m1234/data.h5", "data.h5")
@@ -21,6 +26,7 @@ Usage:
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from urllib.parse import quote
 
@@ -28,6 +34,7 @@ import requests
 import yaml
 
 DEFAULT_BASE_URL = "https://api.iri.nersc.gov"
+_DEFAULT_CONFIG_PATH = Path.home() / ".iri.yaml"
 
 
 class IriClientError(Exception):
@@ -37,8 +44,8 @@ class IriClientError(Exception):
 class Client:
     """Synchronous IRI API client backed by a YAML config file."""
 
-    def __init__(self, config_path: str | Path) -> None:
-        config = _load_config(config_path)
+    def __init__(self, config_path: str | Path | None = None) -> None:
+        config = _load_config(_resolve_config_path(config_path))
         self._base_url = config.get("base_url", DEFAULT_BASE_URL).rstrip("/")
         self._resource_id: str | None = config.get("resource_id")
         self._session = requests.Session()
@@ -236,6 +243,15 @@ class Client:
 # ---------------------------------------------------------------------------
 # Module-level helpers
 # ---------------------------------------------------------------------------
+
+
+def _resolve_config_path(path: str | Path | None) -> Path:
+    if path is not None:
+        return Path(path).expanduser()
+    env = os.environ.get("IRI_CLIENT_CONFIG")
+    if env:
+        return Path(env).expanduser()
+    return _DEFAULT_CONFIG_PATH
 
 
 def _load_config(path: str | Path) -> dict:

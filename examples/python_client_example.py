@@ -116,8 +116,8 @@ def demo_launch_job(client: Client, poll_interval: int = 5, max_polls: int = 12)
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="IRI pure-Python client demo")
-    parser.add_argument("--config", default=str(Path.home() / ".iri.yaml"),
-                        help="Path to YAML config file (default: ~/.iri.yaml)")
+    parser.add_argument("--config", default=None,
+                        help="Path to YAML config file (default: $IRI_CLIENT_CONFIG or ~/.iri.yaml)")
     parser.add_argument("--remote-dir", default="/global/homes/u/user",
                         help="Remote directory to stat/ls")
     parser.add_argument("--remote-file", default=None,
