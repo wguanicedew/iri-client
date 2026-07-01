@@ -44,6 +44,12 @@ _TASK_POLL_INTERVAL = 5   # seconds between task status polls
 _TASK_MAX_POLLS = 60      # ~5 minutes at 5s interval
 
 
+def _stream_to_file(resp: requests.Response, dest: str | Path) -> None:
+    with open(dest, "wb") as fh:
+        for chunk in resp.iter_content(chunk_size=65536):
+            fh.write(chunk)
+
+
 class IriClientError(Exception):
     pass
 
@@ -185,6 +191,11 @@ class Client:
 
         GET /api/v1/filesystem/download/{resource_id}?path=...
 
+        The server may respond immediately with binary content or return a task
+        (``task_id`` / ``task_uri``).  In the task case the method polls until
+        the task completes and then streams the file from the URL found in
+        ``task.result``.
+
         Args:
             remote_path: Absolute path to the file on the remote filesystem.
             local_dest: Local destination path for the downloaded file.
@@ -196,9 +207,24 @@ class Client:
         self._curl("GET", url, params=params, output_path=local_dest)
         resp = self._session.get(url, params=params, stream=True)
         _raise_for_error(resp)
-        with open(local_dest, "wb") as fh:
-            for chunk in resp.iter_content(chunk_size=65536):
-                fh.write(chunk)
+
+        if "application/json" in resp.headers.get("Content-Type", ""):
+            data = _json_response(resp)
+            if "task_id" not in data or "task_uri" not in data:
+                raise IriClientError(f"Unexpected JSON response from download: {data}")
+            task = self._wait_for_task(data["task_id"], data["task_uri"])
+            result = task.get("result") or {}
+            file_url = result.get("url") or result.get("download_url")
+            if not file_url:
+                raise IriClientError(
+                    f"Download task completed but result contains no URL: {result}"
+                )
+            self._curl("GET", file_url, output_path=local_dest)
+            file_resp = self._session.get(file_url, stream=True)
+            _raise_for_error(file_resp)
+            _stream_to_file(file_resp, local_dest)
+        else:
+            _stream_to_file(resp, local_dest)
 
     def upload(
         self,
