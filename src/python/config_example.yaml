@@ -1,0 +1,8 @@
+# IRI API client configuration
+# Copy this file to e.g. ~/.iri.yaml and fill in your values.
+
+base_url: https://api.iri.nersc.gov   # optional; this is the default
+
+access_token: <your_token>            # required for authenticated endpoints
+
+resource_id: b3af92a7-cf5f-42cf-a4be-6f6554a779e3  # optional default resource
