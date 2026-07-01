@@ -215,16 +215,11 @@ class Client:
             task = self._wait_for_task(data["task_id"], data["task_uri"])
             result = task.get("result") or {}
             if self._debug:
-                print(f"# download task {data['task_id']} completed, result={result}", file=sys.stderr)
-            file_url = result.get("url") or result.get("download_url")
-            if not file_url:
-                raise IriClientError(
-                    f"Download task completed but result contains no URL: {result}"
-                )
-            self._curl("GET", file_url, output_path=local_dest)
-            file_resp = self._session.get(file_url, stream=True)
-            _raise_for_error(file_resp)
-            _stream_to_file(file_resp, local_dest)
+                print(f"# download task {data['task_id']} completed", file=sys.stderr)
+            if "output" not in result:
+                raise IriClientError(f"Download task completed but result contains no output: {result}")
+            output = result.get("output")
+            _stream_to_file(output, local_dest)
         else:
             _stream_to_file(resp, local_dest)
 
@@ -304,7 +299,7 @@ class Client:
             status = task.get("status", "")
             if self._debug:
                 print(f"# task {task_id}: status={status}", file=sys.stderr)
-                print(_json.dumps(task, indent=2), file=sys.stderr)
+                # print(_json.dumps(task, indent=2), file=sys.stderr)
             if status in _TASK_TERMINAL_STATES:
                 return task
             if attempt < _TASK_MAX_POLLS:
