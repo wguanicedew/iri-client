@@ -214,6 +214,8 @@ class Client:
                 raise IriClientError(f"Unexpected JSON response from download: {data}")
             task = self._wait_for_task(data["task_id"], data["task_uri"])
             result = task.get("result") or {}
+            if self._debug:
+                print(f"# download task {data['task_id']} completed, result={result}", file=sys.stderr)
             file_url = result.get("url") or result.get("download_url")
             if not file_url:
                 raise IriClientError(
@@ -302,6 +304,7 @@ class Client:
             status = task.get("status", "")
             if self._debug:
                 print(f"# task {task_id}: status={status}", file=sys.stderr)
+                print(_json.dumps(task, indent=2), file=sys.stderr)
             if status in _TASK_TERMINAL_STATES:
                 return task
             if attempt < _TASK_MAX_POLLS:
