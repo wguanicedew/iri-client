@@ -30,6 +30,7 @@ import json as _json
 import os
 import shlex
 import sys
+import time
 from pathlib import Path
 from urllib.parse import quote, urlencode
 
@@ -38,6 +39,9 @@ import yaml
 
 DEFAULT_BASE_URL = "https://api.iri.nersc.gov"
 _DEFAULT_CONFIG_PATH = Path.home() / ".iri.yaml"
+_TASK_TERMINAL_STATES = {"completed", "failed", "canceled"}
+_TASK_POLL_INTERVAL = 5   # seconds between task status polls
+_TASK_MAX_POLLS = 60      # ~5 minutes at 5s interval
 
 
 class IriClientError(Exception):
@@ -78,7 +82,7 @@ class Client:
         url = f"{self._base_url}/api/v1/compute/job/{_encode(rid)}"
         self._curl("POST", url, json_body=job_spec)
         resp = self._session.post(url, json=job_spec)
-        return _json_response(resp)
+        return self._fetch(resp)
 
     def get_job(self, job_id: str, *, resource_id: str | None = None) -> dict:
         """Get status of a submitted job.
@@ -96,7 +100,7 @@ class Client:
         url = f"{self._base_url}/api/v1/compute/status/{_encode(rid)}/{_encode(job_id)}"
         self._curl("GET", url)
         resp = self._session.get(url)
-        return _json_response(resp)
+        return self._fetch(resp)
 
     # ------------------------------------------------------------------
     # Filesystem
@@ -128,7 +132,7 @@ class Client:
         url = f"{self._base_url}/api/v1/filesystem/stat/{_encode(rid)}"
         self._curl("GET", url, params=params)
         resp = self._session.get(url, params=params)
-        return _json_response(resp)
+        return self._fetch(resp)
 
     def ls(
         self,
@@ -168,7 +172,7 @@ class Client:
         url = f"{self._base_url}/api/v1/filesystem/ls/{_encode(rid)}"
         self._curl("GET", url, params=params)
         resp = self._session.get(url, params=params)
-        return _json_response(resp)
+        return self._fetch(resp)
 
     def download(
         self,
@@ -223,7 +227,7 @@ class Client:
         self._curl("POST", url, params=params, upload_path=local_path)
         with open(local_path, "rb") as fh:
             resp = self._session.post(url, params=params, files={"file": fh})
-        return _json_response(resp)
+        return self._fetch(resp)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -257,6 +261,29 @@ class Client:
         full_url = f"{url}?{urlencode(params)}" if params else url
         parts.append(full_url)
         print(shlex.join(parts), file=sys.stderr)
+
+    def _fetch(self, resp: requests.Response) -> dict:
+        result = _json_response(resp)
+        if "task_id" in result and "task_uri" in result:
+            result = self._wait_for_task(result["task_id"], result["task_uri"])
+        return result
+
+    def _wait_for_task(self, task_id: str, task_uri: str) -> dict:
+        for attempt in range(1, _TASK_MAX_POLLS + 1):
+            self._curl("GET", task_uri)
+            resp = self._session.get(task_uri)
+            task = _json_response(resp)
+            status = task.get("status", "")
+            if self._debug:
+                print(f"# task {task_id}: status={status}", file=sys.stderr)
+            if status in _TASK_TERMINAL_STATES:
+                return task
+            if attempt < _TASK_MAX_POLLS:
+                time.sleep(_TASK_POLL_INTERVAL)
+        raise IriClientError(
+            f"Task {task_id} did not reach a terminal state "
+            f"after {_TASK_MAX_POLLS} polls ({_TASK_POLL_INTERVAL}s interval)"
+        )
 
     def _resource(self, resource_id: str | None) -> str:
         rid = resource_id or self._resource_id
