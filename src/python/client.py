@@ -218,8 +218,9 @@ class Client:
                 print(f"# download task {data['task_id']} completed", file=sys.stderr)
             if "output" not in result:
                 raise IriClientError(f"Download task completed but result contains no output: {result}")
-            output = result.get("output")
-            _stream_to_file(output, local_dest)
+            output = result["output"]
+            with open(local_dest, "w" if isinstance(output, str) else "wb") as fh:
+                fh.write(output)
         else:
             _stream_to_file(resp, local_dest)
 
