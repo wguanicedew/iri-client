@@ -40,7 +40,34 @@ JOB_SPEC = {
     "attributes": {
         "duration": 300,
         "queue_name": "debug",
-        "account": "mXXXX",
+        "account": "m5037",
+        "custom_attributes": {},
+    },
+    "launcher": "single",
+}
+
+_NERSC_JOB_DIR = "/global/cfs/cdirs/m5037/iri_test"
+NERSC_JOB_SPEC = {
+    "executable": "bash",
+    "arguments": [f"{_NERSC_JOB_DIR}/test.sh", "-d", _NERSC_JOB_DIR],
+    "directory": _NERSC_JOB_DIR,
+    "name": "triton-inference-server",
+    "inherit_environment": True,
+    "environment": {},
+    "stdout_path": f"{_NERSC_JOB_DIR}/output.txt",
+    "stderr_path": f"{_NERSC_JOB_DIR}/error.txt",
+    "resources": {
+        "node_count": 1,
+        "process_count": 1,
+        "processes_per_node": 1,
+        "cpu_cores_per_process": 64,
+        "gpu_cores_per_process": 4,
+        "exclusive_node_use": True,
+    },
+    "attributes": {
+        "duration": 30 * 60,
+        "queue_name": "debug",
+        "account": "m5037",
         "custom_attributes": {},
     },
     "launcher": "single",
@@ -80,10 +107,10 @@ def demo_download_upload(client: Client, remote_path: str, local_path: str) -> N
         print(f"upload failed: {e}")
 
 
-def demo_launch_job(client: Client, poll_interval: int = 5, max_polls: int = 12) -> None:
+def demo_launch_job(client: Client, job_spec: dict, poll_interval: int = 5, max_polls: int = 12) -> None:
     print("\n--- launch_job ---")
     try:
-        job = client.launch_job(JOB_SPEC)
+        job = client.launch_job(job_spec)
     except IriClientError as e:
         print(f"launch_job failed: {e}")
         return
@@ -138,7 +165,10 @@ def main() -> None:
         demo_download_upload(client, args.remote_file, args.local_file)
 
     if not args.skip_job:
-        demo_launch_job(client)
+        print("\n=== simple job ===")
+        demo_launch_job(client, JOB_SPEC)
+        print("\n=== NERSC job ===")
+        demo_launch_job(client, NERSC_JOB_SPEC)
 
 
 if __name__ == "__main__":
