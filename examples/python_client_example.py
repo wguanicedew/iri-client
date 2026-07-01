@@ -118,7 +118,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="IRI pure-Python client demo")
     parser.add_argument("--config", default=None,
                         help="Path to YAML config file (default: $IRI_CLIENT_CONFIG or ~/.iri.yaml)")
-    parser.add_argument("--remote-dir", default="/global/homes/u/user",
+    parser.add_argument("--remote-dir", default="/global/cfs/cdirs/m5037/iri_test",
                         help="Remote directory to stat/ls")
     parser.add_argument("--remote-file", default=None,
                         help="Remote file to download/upload (skipped if not set)")
