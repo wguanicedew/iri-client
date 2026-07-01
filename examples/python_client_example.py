@@ -126,9 +126,11 @@ def main() -> None:
                         help="Local path for downloaded file")
     parser.add_argument("--skip-job", action="store_true",
                         help="Skip the launch_job demo (avoids submitting a real job)")
+    parser.add_argument("--debug", action="store_true",
+                        help="Print equivalent curl command for each API call")
     args = parser.parse_args()
 
-    client = Client(args.config)
+    client = Client(args.config, debug=args.debug)
 
     demo_filesystem(client, args.remote_dir)
 
